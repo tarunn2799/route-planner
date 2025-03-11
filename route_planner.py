@@ -269,46 +269,97 @@ class RouteOptimizer:
         return result
 
     def _generate_map_url(self, geocoded, origin, optimized_destinations):
-        """Generate Google Maps URL for the optimized route"""
+        """
+        Generate Google Maps URL for the optimized route
+        Handles more than 10 waypoints by splitting into batches and combining URLs
+        """
         try:
-            # Base URL
-            url = "https://www.google.com/maps/dir/?api=1"
-            
-            # Add origin as coordinates or address
-            if origin in geocoded and 'lat' in geocoded[origin] and 'lng' in geocoded[origin]:
-                lat = geocoded[origin]['lat']
-                lng = geocoded[origin]['lng']
-                url += f"&origin={lat},{lng}"
-            else:
-                url += f"&origin={origin}"
-            
-            # Add destination (back to origin for round trip)
-            if origin in geocoded and 'lat' in geocoded[origin] and 'lng' in geocoded[origin]:
-                lat = geocoded[origin]['lat']
-                lng = geocoded[origin]['lng']
-                url += f"&destination={lat},{lng}"
-            else:
-                url += f"&destination={origin}"
-            
-            # Add waypoints if any
-            if optimized_destinations:
-                waypoints = []
+            # If we have 9 or fewer destinations, we can use a single URL (origin + destinations + return to origin)
+            if len(optimized_destinations) <= 9:
+                # Build a simple URL with all waypoints
+                url = "https://www.google.com/maps/dir/"
+                
+                # Add origin
+                if origin in geocoded and 'lat' in geocoded[origin] and 'lng' in geocoded[origin]:
+                    lat = geocoded[origin]['lat']
+                    lng = geocoded[origin]['lng']
+                    url += f"{lat},{lng}/"
+                else:
+                    url += f"{origin.replace(' ', '+')}/"
+                
+                # Add destinations
                 for dest in optimized_destinations:
                     if dest in geocoded and 'lat' in geocoded[dest] and 'lng' in geocoded[dest]:
                         lat = geocoded[dest]['lat']
                         lng = geocoded[dest]['lng']
-                        waypoints.append(f"{lat},{lng}")
+                        url += f"{lat},{lng}/"
                     else:
-                        waypoints.append(dest)
+                        url += f"{dest.replace(' ', '+')}/"
                 
-                if waypoints:
-                    url += f"&waypoints={'|'.join(waypoints)}"
+                # Add return to origin (complete the loop)
+                if origin in geocoded and 'lat' in geocoded[origin] and 'lng' in geocoded[origin]:
+                    lat = geocoded[origin]['lat']
+                    lng = geocoded[origin]['lng']
+                    url += f"{lat},{lng}/"
+                else:
+                    url += f"{origin.replace(' ', '+')}/"
+                
+                # Remove trailing slash
+                url = url.rstrip('/')
+                
+                logging.info(f"Generated Google Maps URL with {len(optimized_destinations)} destinations")
+                return url
             
-            # Add travel mode
-            url += "&travelmode=driving&dir_action=navigate"
-            
-            logging.info(f"Generated Google Maps URL: {url}")
-            return url
+            # For more than 9 destinations, we need to split into batches
+            else:
+                logging.info(f"Handling {len(optimized_destinations)} destinations in batches due to Google Maps limit")
+                
+                # First batch: Origin + first 8 destinations + last destination
+                batch_size = 8  # Leave space for origin and return to last destination
+                
+                # Split destinations into batches
+                destination_batches = []
+                for i in range(0, len(optimized_destinations), batch_size):
+                    batch = optimized_destinations[i:i+batch_size]
+                    destination_batches.append(batch)
+                
+                # Generate URL for the complete route
+                url = "https://www.google.com/maps/dir/"
+                
+                # Add origin
+                if origin in geocoded and 'lat' in geocoded[origin] and 'lng' in geocoded[origin]:
+                    lat = geocoded[origin]['lat']
+                    lng = geocoded[origin]['lng']
+                    url += f"{lat},{lng}/"
+                else:
+                    url += f"{origin.replace(' ', '+')}/"
+                
+                # Add all destinations in sequence
+                for dest in optimized_destinations:
+                    if dest in geocoded and 'lat' in geocoded[dest] and 'lng' in geocoded[dest]:
+                        lat = geocoded[dest]['lat']
+                        lng = geocoded[dest]['lng']
+                        url += f"{lat},{lng}/"
+                    else:
+                        url += f"{dest.replace(' ', '+')}/"
+                
+                # Add return to origin
+                if origin in geocoded and 'lat' in geocoded[origin] and 'lng' in geocoded[origin]:
+                    lat = geocoded[origin]['lat']
+                    lng = geocoded[origin]['lng']
+                    url += f"{lat},{lng}/"
+                else:
+                    url += f"{origin.replace(' ', '+')}/"
+                
+                # Remove trailing slash
+                url = url.rstrip('/')
+                
+                # Remove everything after the @ symbol if present (to follow the guide)
+                if '@' in url:
+                    url = url.split('@')[0]
+                
+                logging.info(f"Generated Google Maps URL with {len(optimized_destinations)} destinations in multiple batches")
+                return url
             
         except Exception as e:
             logging.error(f"Failed to generate Google Maps URL: {str(e)}")
